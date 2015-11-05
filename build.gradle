@@ -1,0 +1,37 @@
+apply plugin: 'java'
+apply plugin: 'maven'
+
+group = 'blackboard'
+version = '0.0.1-SNAPSHOT'
+
+description = """"""
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+
+
+repositories {
+        
+     maven { url "http://repo.typesafe.com/typesafe/releases/" }
+     maven { url "http://repo.maven.apache.org/maven2" }
+}
+dependencies {
+    compile group: 'junit', name: 'junit', version:'4.11'
+    compile group: 'com.jayway.restassured', name: 'rest-assured', version:'2.4.0'
+    compile group: 'org.springframework', name: 'spring-webmvc', version:'4.2.0.RELEASE'
+    compile group: 'com.fasterxml.jackson.core', name: 'jackson-core', version:'2.5.0'
+    compile group: 'com.fasterxml.jackson.core', name: 'jackson-annotations', version:'2.5.0'
+    compile group: 'com.fasterxml.jackson.core', name: 'jackson-databind', version:'2.5.0'
+    compile group: 'org.springframework', name: 'spring-web', version:'4.2.0.RELEASE'
+    compile group: 'org.springframework', name: 'spring-context', version:'4.2.0.RELEASE'
+    compile group: 'org.springframework', name: 'spring-core', version:'4.2.0.RELEASE'
+    compile group: 'org.springframework', name: 'spring-test', version:'4.2.0.RELEASE'
+    compile group: 'org.springframework', name: 'spring-aop', version:'4.2.0.RELEASE'
+    compile group: 'org.springframework', name: 'spring-aspects', version:'4.2.0.RELEASE'
+    compile group: 'com.typesafe.akka', name: 'akka-actor_2.11', version:'2.3.14'
+    compile group: 'org.scala-lang', name: 'scala-library', version:'2.11.5'
+    compile group: 'org.springframework.boot', name: 'spring-boot-starter-web', version:'1.2.6.RELEASE'
+    compile group: 'org.springframework.boot', name: 'spring-boot-starter-test', version:'1.2.6.RELEASE'
+    compile group: 'org.springframework.boot', name: 'spring-boot-starter', version:'1.2.6.RELEASE'
+}
