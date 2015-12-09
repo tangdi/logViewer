@@ -20,7 +20,6 @@ import java.io.IOException;
 public class MasterHandler extends UntypedActor {
 	ActorRef router;
 	Props props;
-	int count = 0;
 
 	public MasterHandler(Props routeeProps, int count) {
 		this.props = routeeProps;
@@ -36,8 +35,6 @@ public class MasterHandler extends UntypedActor {
 				@Override
 				public SupervisorStrategy.Directive apply(Throwable param) throws Exception {
 					if (param instanceof IOException) {
-						//TODO
-						System.out.println(param);
 						return SupervisorStrategy.resume();
 					}
 					return SupervisorStrategy.escalate();
@@ -48,9 +45,6 @@ public class MasterHandler extends UntypedActor {
 	public void onReceive(Object message) throws Exception {
 		if (message instanceof Event) {
 			router.tell(message, getSender());
-			if((++count) % 1000 == 0){
-				System.out.println("actor receive " + count + " event");
-			}
 		} else if (Scanner.FINISH_WORK.equals(message)) {
 			System.out.println("receive finish call");
 			router.tell(new Broadcast(message), getSender());

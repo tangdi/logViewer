@@ -88,6 +88,7 @@ public class EventExtracter {
 		String firstField = targetField.substring(0, dotIndex);
 		Object object = fields.get(firstField);
 		if(! (object instanceof HashMap)){
+			System.out.println(object);
 			throw new RuntimeException( firstField + " is not a map");
 		}
 		fields = (HashMap<String, ?>) object;

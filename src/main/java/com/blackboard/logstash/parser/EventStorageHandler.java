@@ -19,20 +19,21 @@ import org.springframework.web.client.RestTemplate;
 public class EventStorageHandler extends UntypedActor {
 
 	private final RestTemplate restTemplate;
-	public EventStorageHandler(RestTemplate restTemplate) {
+	private final String host;
+	public EventStorageHandler(RestTemplate restTemplate, String host) {
 		this.restTemplate = restTemplate;
+		this.host = host;
 	}
 
 	@Override
 	public void onReceive(Object message) throws Exception {
 		if(message instanceof Event){
 			Event event = (Event) message;
-//			System.out.println(event.fields);
 			if(StringUtils.isNotBlank(event.id)) {
-				restTemplate.put("http://localhost:9200/{index}/{type}/{id}", event.fields, event.index, event.type,
+				restTemplate.put("{host}/{index}/{type}/{id}", event.fields, host, event.index, event.type,
 						event.id);
 			}else{
-				restTemplate.postForLocation("http://localhost:9200/{index}/{type}/", event.fields, event.index, event.type);
+				restTemplate.postForLocation("{host}/{index}/{type}/", event.fields, host, event.index, event.type);
 
 			}
 		}else if(Scanner.FINISH_WORK.equals(message)){
