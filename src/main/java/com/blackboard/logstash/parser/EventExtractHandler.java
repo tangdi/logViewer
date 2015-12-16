@@ -20,7 +20,7 @@ public class EventExtractHandler extends UntypedActor{
 
 	public void handle(Event event) {
 		Map<String, Object> fields = EventExtracter.extract(new HashMap<>(event.fields), filter);
-		nextHandler.tell(new Event(fields, event.index, event.type), getSender());
+		nextHandler.tell(new Event(fields, event.index, event.type, event.id), getSender());
 //				System.out.println("event field is " + event.fields);
 //		baseURI = "http://localhost:9200";
 //

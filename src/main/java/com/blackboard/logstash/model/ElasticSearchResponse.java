@@ -4,6 +4,7 @@
 package com.blackboard.logstash.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
  * ClassName: ElasticSearchResponse Function: TODO
@@ -15,6 +16,8 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 public class ElasticSearchResponse {
 	private Hits hits;
 
+	@JsonProperty("_scroll_id") private String scollId;
+
 	public Hits getHits() {
 		return hits;
 	}
@@ -22,4 +25,13 @@ public class ElasticSearchResponse {
 	public void setHits(Hits hits) {
 		this.hits = hits;
 	}
+
+	public String getScollId() {
+		return scollId;
+	}
+
+	public void setScollId(String scollId) {
+		this.scollId = scollId;
+	}
+
 }

@@ -22,9 +22,7 @@ import java.util.Date;
  * @Author: dtang
  * @Date: 9/29/15, 2:05 PM
  */
-@Component
 public class LogScanTask {
-	@Autowired
 	RestTemplate restTemplate;
 
 	public void runLogScan() {
