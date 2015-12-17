@@ -74,8 +74,8 @@ public class ElasticToRedis {
 		//		String logType = "mbaas-rolling";
 		//		String host = "https://mbaas-prod-elk-664782521.us-east-1.elb.amazonaws.com/elasticsearch/logstash-{date}/{logType}/";
 
-		ZonedDateTime today = ZonedDateTime.now(ZoneOffset.UTC);
-		//		ZonedDateTime today = ZonedDateTime.of(2015, 11, 22, 0, 0, 0, 0, ZoneOffset.UTC);
+//		ZonedDateTime today = ZonedDateTime.now(ZoneOffset.UTC);
+				ZonedDateTime today = ZonedDateTime.of(2015, 12, 16, 0, 0, 0, 0, ZoneOffset.UTC);
 		//		ZonedDateTime today = ZonedDateTime.of(2015, 11, 18, 0, 0, 0, 0, ZoneOffset.UTC);
 		//		ZonedDateTime start = ZonedDateTime.of(2015, 11, 21, 0, 0, 0, 0, ZoneOffset.UTC);
 		crawl(today.minusDays(1), today, logType);
@@ -121,10 +121,8 @@ public class ElasticToRedis {
 
 	public String generateAuthEncoded() {
 		//TODO fill the real user password
-		String user = "kwang";
-		String password = "Wdsaowp";
-		//    String user = "kibanaadmin";
-		//    String password = "Black@1";
+		String user = "";
+		String password = "";
 		String authEncoded = new String(Base64Utils.encode((user + ":" + password).getBytes()));
 		return authEncoded;
 	}
@@ -235,6 +233,7 @@ public class ElasticToRedis {
 		long size = 300;
 		ResponseEntity<ElasticSearchResponse> responseEntity;
 		String index = generateSrcIndex(date);
+		//TODO current beast does not support Scan and Scroll, which is performance optimal
 		//		try {
 		//			responseEntity = restTemplate.exchange(host + "/{index}/{type}/_search?size={size}&&search_type=scan&scroll={scrollTime}", HttpMethod.POST, generateHttpEntityWithMap(queryBody),
 		//					new ParameterizedTypeReference<ElasticSearchResponse>() {
@@ -245,7 +244,7 @@ public class ElasticToRedis {
 		//		}
 		try {
 			responseEntity = restTemplate
-					.exchange(host + "/{index}/{type}/_search?size={size}", HttpMethod.POST, generateHttpEntityWithMap(queryBody), new ParameterizedTypeReference<ElasticSearchResponse>() {
+					.exchange(host + "/{index}/{type}/_search?preference=xyzabc123&size={size}", HttpMethod.POST, generateHttpEntityWithMap(queryBody), new ParameterizedTypeReference<ElasticSearchResponse>() {
 					}, index, logType, 0);
 		} catch (HttpClientErrorException e) {
 			LOG.error(e.getResponseBodyAsString());
@@ -262,7 +261,7 @@ public class ElasticToRedis {
 			long accu = 0;
 			ConcurrentMap<String, Long> map = new ConcurrentHashMap<>();
 			while (true) {
-				responseEntity = restTemplate.exchange(host + "/{index}/{type}/_search?from={accu}&size={size}", HttpMethod.POST, generateHttpEntityWithMap(queryBody),
+				responseEntity = restTemplate.exchange(host + "/{index}/{type}/_search?preference=xyzabc123&from={accu}&size={size}", HttpMethod.POST, generateHttpEntityWithMap(queryBody),
 						new ParameterizedTypeReference<ElasticSearchResponse>() {
 						}, index, logType, accu, size);
 				long hitsSize = responseEntity.getBody().getHits().getHits().size();
@@ -270,12 +269,12 @@ public class ElasticToRedis {
 					break;
 				}
 				System.out.println(accu);
-//				long current_accu = accu;
+				long current_accu = accu;
 				responseEntity.getBody().getHits().getHits().parallelStream().forEach(hit -> {
-//					Long val = map.putIfAbsent(hit.getId(), current_accu);
-//					if (val != null) {
-//						LOG.error("current accu is {}, prev accu is {}, id is {}", current_accu, val, hit.getId());
-//					}
+					Long val = map.putIfAbsent(hit.getId(), current_accu);
+					if (val != null) {
+						LOG.error("duplicate ids!. current accu is {}, prev accu is {}, id is {}", current_accu, val, hit.getId());
+					}
 					redisTemplate.execute((RedisConnection connection) -> {
 						String value = null;
 						try {
