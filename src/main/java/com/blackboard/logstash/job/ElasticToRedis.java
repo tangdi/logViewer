@@ -7,10 +7,16 @@ import java.nio.charset.Charset;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CountDownLatch;
+import javax.annotation.PostConstruct;
 
+import akka.actor.ActorRef;
 import com.blackboard.logstash.model.ElasticSearchResponse;
 import com.blackboard.logstash.util.ObjectMapperUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -44,11 +50,10 @@ public class ElasticToRedis {
 	@Autowired private RestTemplate restTemplate;
 
 	@Autowired private RedisTemplate<String, Object> redisTemplate;
-
-	private final boolean OVERWRITE_REDIS = true;
-	private final boolean OVERWRITE_ELASTIC = true;
+	@Autowired private ActorRef logExtracter;
 
 	private final ObjectMapper OBJECT_MAPPER = ObjectMapperUtil.getObjectMapper();
+
 	public static final Charset UTF_8_CHARSET = Charset.forName("UTF-8");
 
 	private DateTimeFormatter cloudElasticDateFormat;
@@ -57,8 +62,13 @@ public class ElasticToRedis {
 
 	private String host = "https://telemetry-prod-bastion01.cloud.bb";
 
+	private final int MAX_TIMES = 3;
+
+	private final String LOG_TYPE = "AccessLog";
+
+	private final CountDownLatch DAILY_CRAWL = new CountDownLatch(1);
+
 	public ElasticToRedis() {
-		TimeZone gmt = TimeZone.getTimeZone("GMT");
 		cloudElasticDateFormat = DateTimeFormatter.ofPattern("yyyyMMdd");
 		//		cloudElasticDateFormat = DateTimeFormatter.ofPattern("yyyy.MM.dd");
 
@@ -66,43 +76,64 @@ public class ElasticToRedis {
 
 	}
 
-	@Scheduled(fixedDelay = 24 * 3600 * 1000)
-	public void crawl() {
+	@PostConstruct
+	private void saveLastMonthData() {
+		LOG.warn("initialize: crawl last month data if not in redis and elastic");
+		try {
+			ZonedDateTime end = ZonedDateTime.now(ZoneOffset.UTC);
+			end = end.minusDays(1);
+			ZonedDateTime start = end.minusDays(6);
+			crawl(start, end, LOG_TYPE, false, false);
+		} catch (Throwable e) {
+			LOG.error(e);
+		}
+		LOG.warn("initialize finished");
+		DAILY_CRAWL.countDown();
 
-		//TODO fill the real elastic host
-		final String logType = "AccessLog";
-		//		String logType = "mbaas-rolling";
-		//		String host = "https://mbaas-prod-elk-664782521.us-east-1.elb.amazonaws.com/elasticsearch/logstash-{date}/{logType}/";
-
-//		ZonedDateTime today = ZonedDateTime.now(ZoneOffset.UTC);
-				ZonedDateTime today = ZonedDateTime.of(2015, 12, 16, 0, 0, 0, 0, ZoneOffset.UTC);
-		//		ZonedDateTime today = ZonedDateTime.of(2015, 11, 18, 0, 0, 0, 0, ZoneOffset.UTC);
-		//		ZonedDateTime start = ZonedDateTime.of(2015, 11, 21, 0, 0, 0, 0, ZoneOffset.UTC);
-		crawl(today.minusDays(1), today, logType);
 	}
 
-	public void crawl(ZonedDateTime startDate, ZonedDateTime endDate, String logType) {
+	@Scheduled(fixedRate = 24 * 3600 * 1000)
+	private void crawl() {
+		ZonedDateTime today = ZonedDateTime.now(ZoneOffset.UTC);
+		try {
+			DAILY_CRAWL.await();
+		} catch (InterruptedException e) {
+			LOG.error(e);
+			return;
+		}
+		ZonedDateTime start = today.minusDays(1);
+		LOG.warn("crawl one day {} data", generateDateString(start));
+
+		//TODO fill the real elastic host
+		//		String host = "https://mbaas-prod-elk-664782521.us-east-1.elb.amazonaws.com/elasticsearch/logstash-{date}/{LOG_TYPE}/";
+
+		crawl(start, today, LOG_TYPE, false, true);
+	}
+
+	public void crawl(ZonedDateTime startDate, ZonedDateTime endDate, String logType, boolean overwriteRedis, boolean overwriteElastic) {
 		List<ZonedDateTime> dates = new ArrayList<>();
 		for (ZonedDateTime date = startDate; date.isBefore(endDate); date = date.plusDays(1)) {
 			LOG.debug("host is {}, log type is {}, index is {}", host, logType, generateSrcIndex(date));
-			if (crawl(date, logType) || OVERWRITE_ELASTIC) {
+			if (crawl(date, logType, overwriteRedis) || overwriteElastic) {
 				dates.add(date);
 			}
+			LOG.warn("skip {} since it already exists", generateDateString(date));
 		}
-		ElasticPersistence crawler = new ElasticPersistence(restTemplate, redisTemplate, cloudElasticDateFormat, localElasticDateFormat, dates, logType);
-		crawler.store();
+		ElasticPersistence elasticPersistence = new ElasticPersistence(logExtracter, cloudElasticDateFormat, localElasticDateFormat, restTemplate, redisTemplate);
+		elasticPersistence.store(logType, dates);
 
 	}
 
-	public boolean crawl(ZonedDateTime targetDate, String logType) {
+	public boolean crawl(ZonedDateTime targetDate, String logType, boolean overwriteRedis) {
 		boolean existing = existsInRedis(targetDate, logType);
+		String dateString = generateDateString(targetDate);
 
 		if (existing) {
-			if (!OVERWRITE_REDIS) {
-				LOG.warn("target Date {} already exists in redis, skip overwrite", targetDate);
+			if (!overwriteRedis) {
+				LOG.warn("target Date {} already exists in redis, skip overwrite", dateString);
 				return false;
 			} else {
-				LOG.warn("target Date {} already exists in redis, delete it", targetDate);
+				LOG.warn("target Date {} already exists in redis, delete it", dateString);
 				deleteRedisKey(targetDate, logType);
 			}
 		}
@@ -113,16 +144,36 @@ public class ElasticToRedis {
 		if (!host.endsWith("/")) {
 			host += "/";
 		}
-		saveMappingInRedis(targetDate, logType, host, body);
-		saveDataInRedis(targetDate, logType, host, body, "10m");
+		// TODO add error handling
+		long starTime = System.currentTimeMillis();
+		boolean sucessful = false;
+		for (int i = 0; i < MAX_TIMES; i++) {
+			try {
+				saveMappingInRedis(targetDate, logType, host, body);
+				saveDataInRedis(targetDate, logType, host, body, "10m");
+			} catch (Throwable e) {
+				LOG.error("there is error when crawling from Prod, error is: {}, retry if possible", e.getLocalizedMessage());
+				deleteRedisKey(targetDate, logType);
+				continue;
+			}
+			sucessful = true;
+			break;
+		}
+		if (!sucessful) {
+			LOG.error("crawing for date {} failed", generateDateString(targetDate));
+			return false;
+		}
+		LOG.warn("crawing for date {} success, take {} millis", generateDateString(targetDate), System.currentTimeMillis() - starTime);
+
 		// return true means we did crawl
 		return true;
 	}
 
 	public String generateAuthEncoded() {
 		//TODO fill the real user password
-		String user = "";
-		String password = "";
+				String user = "";
+				String password = "";
+
 		String authEncoded = new String(Base64Utils.encode((user + ":" + password).getBytes()));
 		return authEncoded;
 	}
@@ -145,7 +196,7 @@ public class ElasticToRedis {
 		String dateString = generateDateString(date);
 		boolean existing = redisTemplate.execute((RedisConnection connection) -> {
 			return connection.exists(getRedisKey(dateString, logType).getBytes(UTF_8_CHARSET));
-		}) || redisTemplate.execute((RedisConnection connection) -> {
+		}) && redisTemplate.execute((RedisConnection connection) -> {
 			return connection.exists(getMappingRedisKey(dateString, logType).getBytes(UTF_8_CHARSET));
 		});
 		return existing;
@@ -237,14 +288,14 @@ public class ElasticToRedis {
 		//		try {
 		//			responseEntity = restTemplate.exchange(host + "/{index}/{type}/_search?size={size}&&search_type=scan&scroll={scrollTime}", HttpMethod.POST, generateHttpEntityWithMap(queryBody),
 		//					new ParameterizedTypeReference<ElasticSearchResponse>() {
-		//					}, index, logType, getSizePerShard(size, date), scrollTime);
+		//					}, index, LOG_TYPE, getSizePerShard(size, date), scrollTime);
 		//		} catch (HttpClientErrorException e) {
 		//			LOG.error(e.getResponseBodyAsString());
 		//			throw e;
 		//		}
 		try {
-			responseEntity = restTemplate
-					.exchange(host + "/{index}/{type}/_search?preference=xyzabc123&size={size}", HttpMethod.POST, generateHttpEntityWithMap(queryBody), new ParameterizedTypeReference<ElasticSearchResponse>() {
+			responseEntity = restTemplate.exchange(host + "/{index}/{type}/_search?preference=xyzabc123&size={size}", HttpMethod.POST, generateHttpEntityWithMap(queryBody),
+					new ParameterizedTypeReference<ElasticSearchResponse>() {
 					}, index, logType, 0);
 		} catch (HttpClientErrorException e) {
 			LOG.error(e.getResponseBodyAsString());

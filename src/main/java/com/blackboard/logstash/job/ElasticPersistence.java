@@ -9,11 +9,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 import akka.actor.ActorRef;
-import akka.actor.ActorSystem;
-import akka.actor.Props;
 import com.blackboard.logstash.model.Hit;
-import com.blackboard.logstash.parser.*;
-import com.blackboard.logstash.parser.Scanner;
+import com.blackboard.logstash.parser.Event;
 import com.blackboard.logstash.util.ObjectMapperUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.logging.log4j.LogManager;
@@ -24,6 +21,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
@@ -34,110 +32,84 @@ import org.springframework.web.client.RestTemplate;
  * @Author: dtang
  * @Date: 11/3/15, 1:31 PM
  */
-public class ElasticPersistence {
-	private static final Logger LOG = LogManager.getLogger(ElasticPersistence.class);
 
+public class ElasticPersistence {
+	public static final String HOST = "http://localhost:9200";
+	private static final Logger LOG = LogManager.getLogger(ElasticPersistence.class);
+	private final ObjectMapper OBJECT_MAPPER = ObjectMapperUtil.getObjectMapper();
+	private final ActorRef accessLogExtracter;
+	private final DateTimeFormatter redisKeyDateFormat;
+	private final DateTimeFormatter destDateFormat;
 	private final RestTemplate restTemplate;
 	private final RedisTemplate<String, Object> redisTemplate;
 
-	private final DateTimeFormatter cloudElasticDateFormat;
-
-	private final DateTimeFormatter localElasticDateFormat;
-
-	private final List<ZonedDateTime> dates;
-
-	private final ObjectMapper OBJECT_MAPPER = ObjectMapperUtil.getObjectMapper();
-
-	private final String logType;
-	private static final String HOST = "http://localhost:9200";
-
-	public ElasticPersistence(RestTemplate restTemplate, RedisTemplate<String, Object> redisTemplate, DateTimeFormatter cloudElasticDateFormat, DateTimeFormatter localElasticDateFormat,
-			List<ZonedDateTime> dates, String logType) {
+	public ElasticPersistence(ActorRef accessLogExtracter, DateTimeFormatter redisKeyDateFormat, DateTimeFormatter destDateFormat, RestTemplate restTemplate,
+			RedisTemplate<String, Object> redisTemplate) {
+		this.accessLogExtracter = accessLogExtracter;
+		this.redisKeyDateFormat = redisKeyDateFormat;
+		this.destDateFormat = destDateFormat;
 		this.restTemplate = restTemplate;
 		this.redisTemplate = redisTemplate;
-		this.cloudElasticDateFormat = cloudElasticDateFormat;
-		this.localElasticDateFormat = localElasticDateFormat;
-		this.logType = logType;
-		this.dates = dates;
 	}
 
-	public void store() {
+	public void store(String logType, List<ZonedDateTime> dates) {
 		if (CollectionUtils.isEmpty(dates)) {
 			LOG.debug("no dates to process");
 			return;
 		}
-		ActorSystem system = ActorSystem.create("logApp");
-		Filter filter = new Filter();
+		try {
 
-		//filter to get device platform from user agent
-		filter.add("request.headers.agent", "%{GREEDY}%{PLATFORM:platform}%{GREEDY}?", null, null);
-		ActorRef storageMaster = system.actorOf(MasterHandler.createMasterProp(20, EventStorageHandler.class, restTemplate, HOST), "storage");
-		ActorRef reaper = system.actorOf(Props.create(ActorReaper.class));
-		ActorRef extractMaster = system.actorOf(MasterHandler.createMasterProp(10, EventExtractHandler.class, filter, storageMaster), "extract");
+			for (ZonedDateTime date : dates) {
+				String index = generateDestIndex(date);
+				String redisKey = ElasticToRedis.getRedisKey(generateSrcDateString(date), logType);
 
-		reaper.tell(new ActorReaper.WatchMe(storageMaster), ActorRef.noSender());
-		reaper.tell(new ActorReaper.WatchMe(extractMaster), ActorRef.noSender());
-
-		for (ZonedDateTime date : dates) {
-			String index = generateDestIndex(date);
-			String redisKey = ElasticToRedis.getRedisKey(generateSrcDateString(date), logType);
-
-			Long totalCount = redisTemplate.execute((RedisConnection connection) -> {
-				return connection.lLen(redisKey.getBytes(ElasticToRedis.UTF_8_CHARSET));
-			});
-
-			if (totalCount == 0L) {
-				LOG.debug("redis key {} contains no element", redisKey);
-				continue;
-			}
-			createIndexType(date, logType, HOST);
-			LOG.debug("send log from redis key {} to dest, total log event count is {}", ElasticToRedis.getRedisKey(generateSrcDateString(date), logType), totalCount);
-
-			long size = 600;
-			long from = 0;
-			Set<String> set = new HashSet<>();
-
-			while (from < totalCount) {
-				final long rfrom = from;
-				final long rsize = size;
-				List<byte[]> rawByteList = redisTemplate.execute((RedisConnection connection) -> {
-					return connection.lRange(redisKey.getBytes(ElasticToRedis.UTF_8_CHARSET), rfrom, rfrom + rsize);
+				Long totalCount = redisTemplate.execute((RedisConnection connection) -> {
+					return connection.lLen(redisKey.getBytes(ElasticToRedis.UTF_8_CHARSET));
 				});
-				from += rawByteList.size();
-				List<Hit> hitList = new ArrayList<>();
-				for (byte[] bytes : rawByteList) {
-					try {
-						Hit hit = ObjectMapperUtil.getObjectMapper().readValue(bytes, Hit.class);
-						hitList.add(hit);
-					} catch (IOException e) {
-						e.printStackTrace();
-					}
+
+				if (totalCount == 0L) {
+					LOG.debug("redis key {} contains no element", redisKey);
+					continue;
 				}
+				createIndexType(date, logType, HOST);
+				LOG.debug("send log from redis key {} to dest, total log event count is {}", ElasticToRedis.getRedisKey(generateSrcDateString(date), logType), totalCount);
 
-				hitList.stream().forEach(hit -> {
-					Event event = generateEvent(hit, index);
-//					if(set.contains(event.id)){
-//						System.out.println("repeat " +event.id);
-//					}else{
-//						set.add(event.id);
-//					}
-//					if("AVGn5PatoFXRq9Wj9KAL".equals(event.id)){
-//						System.out.println(event.fields);
-//
-//					}
-					extractMaster.tell(event, ActorRef.noSender());
-				});
+				long size = 600;
+				long from = 0;
+				Set<String> set = new HashSet<>();
 
+				while (from < totalCount) {
+					final long rfrom = from;
+					final long rsize = size;
+					List<byte[]> rawByteList = redisTemplate.execute((RedisConnection connection) -> {
+						return connection.lRange(redisKey.getBytes(ElasticToRedis.UTF_8_CHARSET), rfrom, rfrom + rsize);
+					});
+					from += rawByteList.size();
+					List<Hit> hitList = new ArrayList<>();
+					for (byte[] bytes : rawByteList) {
+						try {
+							Hit hit = ObjectMapperUtil.getObjectMapper().readValue(bytes, Hit.class);
+							hitList.add(hit);
+						} catch (IOException e) {
+							e.printStackTrace();
+						}
+					}
+
+					hitList.stream().forEach(hit -> {
+						Event event = generateEvent(hit, index, logType);
+						accessLogExtracter.tell(event, ActorRef.noSender());
+					});
+				}
+				LOG.debug("success");
 			}
+			// wait for actor system to terminate
+		} catch (Throwable e) {
+			LOG.error(e);
+		} finally {
 		}
-		storageMaster.tell(Scanner.FINISH_WORK, ActorRef.noSender());
-		// wait for actor system to terminate
-		system.awaitTermination();
-		LOG.error("actor system is terminated");
-
 	}
 
-	public Event generateEvent(Hit hit, String index) {
+	public Event generateEvent(Hit hit, String index, String logType) {
 		Event event = new Event(hit.getSource(), index, logType, hit.getId());
 		return event;
 	}
@@ -147,11 +119,11 @@ public class ElasticPersistence {
 	}
 
 	public String generateSrcDateString(ZonedDateTime date) {
-		return cloudElasticDateFormat.format(date);
+		return redisKeyDateFormat.format(date);
 	}
 
 	public String generateDestDateString(ZonedDateTime date) {
-		return localElasticDateFormat.format(date);
+		return destDateFormat.format(date);
 	}
 
 	public void createIndexType(ZonedDateTime date, String logType, String host) {
