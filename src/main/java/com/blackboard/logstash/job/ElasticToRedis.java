@@ -53,17 +53,9 @@ public class ElasticToRedis {
 
 	public static final Charset UTF_8_CHARSET = Charset.forName("UTF-8");
 
-	private DateTimeFormatter localElasticDateFormat;
-
 	private final int MAX_TIMES = 3;
 
 	private final CountDownLatch DAILY_CRAWL = new CountDownLatch(1);
-
-	public ElasticToRedis() {
-
-		localElasticDateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-
-	}
 
 	@PostConstruct
 	private void saveLastMonthData() {
@@ -107,10 +99,10 @@ public class ElasticToRedis {
 			for (String type : elasticCrawlJob.getSourceTypes()) {
 				for (ZonedDateTime date = startDate; date.isBefore(endDate); date = date.plusDays(1)) {
 					LOG.debug("elasticSource is is {}, log type is {}, index is {}", elasticCrawlJob.getSourceUniqueId(), type, elasticCrawlJob.getSourceIndex(date));
-					if (!crawl(date, type, elasticCrawlJob, overwriteRedis)) {
-						if (overwriteElastic) {
-							dates.add(date);
-						}
+					if (crawl(date, type, elasticCrawlJob, overwriteRedis)) {
+						dates.add(date);
+					}else if(overwriteElastic){
+						dates.add(date);
 					}
 					LOG.warn("skip index {} type {}", elasticCrawlJob.getSourceIndex(date), type);
 				}
