@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2015, Blackboard Inc. All Rights Reserved.
  */
-package com.blackboard.logstash.web;
+package com.blackboard.logstash.config;
 
 import akka.actor.ActorRef;
 import akka.actor.ActorSystem;
@@ -48,7 +48,7 @@ public class ActtorSystemConfig {
 		//filter to get device platform from user agent
 		filter.add("request.headers.agent", "%{GREEDY}%{PLATFORM:platform}%{GREEDY}?", null, null);
 
-		ActorRef storageMaster = actorSystem.actorOf(MasterHandler.createMasterProp(20, EventStorageHandler.class, restTemplate, ElasticPersistence.HOST), "storager");
+		ActorRef storageMaster = actorSystem.actorOf(MasterHandler.createMasterProp(20, EventStorageHandler.class, restTemplate), "storager");
 		ActorRef extractor = actorSystem.actorOf(MasterHandler.createMasterProp(10, EventExtractHandler.class, filter, storageMaster), "extracter");
 		return extractor;
 	}

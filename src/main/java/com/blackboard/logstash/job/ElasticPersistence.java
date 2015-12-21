@@ -5,7 +5,6 @@ package com.blackboard.logstash.job;
 
 import java.io.IOException;
 import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 import akka.actor.ActorRef;
@@ -21,7 +20,6 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
@@ -34,25 +32,20 @@ import org.springframework.web.client.RestTemplate;
  */
 
 public class ElasticPersistence {
-	public static final String HOST = "http://localhost:9200";
+
 	private static final Logger LOG = LogManager.getLogger(ElasticPersistence.class);
 	private final ObjectMapper OBJECT_MAPPER = ObjectMapperUtil.getObjectMapper();
 	private final ActorRef accessLogExtracter;
-	private final DateTimeFormatter redisKeyDateFormat;
-	private final DateTimeFormatter destDateFormat;
 	private final RestTemplate restTemplate;
 	private final RedisTemplate<String, Object> redisTemplate;
 
-	public ElasticPersistence(ActorRef accessLogExtracter, DateTimeFormatter redisKeyDateFormat, DateTimeFormatter destDateFormat, RestTemplate restTemplate,
-			RedisTemplate<String, Object> redisTemplate) {
+	public ElasticPersistence(ActorRef accessLogExtracter, RestTemplate restTemplate, RedisTemplate<String, Object> redisTemplate) {
 		this.accessLogExtracter = accessLogExtracter;
-		this.redisKeyDateFormat = redisKeyDateFormat;
-		this.destDateFormat = destDateFormat;
 		this.restTemplate = restTemplate;
 		this.redisTemplate = redisTemplate;
 	}
 
-	public void store(String logType, List<ZonedDateTime> dates) {
+	public void store(ElasticCrawlJob elasticCrawlJob, String logType, List<ZonedDateTime> dates) {
 		if (CollectionUtils.isEmpty(dates)) {
 			LOG.debug("no dates to process");
 			return;
@@ -60,19 +53,19 @@ public class ElasticPersistence {
 		try {
 
 			for (ZonedDateTime date : dates) {
-				String index = generateDestIndex(date);
-				String redisKey = ElasticToRedis.getRedisKey(generateSrcDateString(date), logType);
+				String index = elasticCrawlJob.getDestinationIndex(date);
+				String redisKey = ElasticToRedis.getRedisKey(date, elasticCrawlJob, logType);
 
 				Long totalCount = redisTemplate.execute((RedisConnection connection) -> {
 					return connection.lLen(redisKey.getBytes(ElasticToRedis.UTF_8_CHARSET));
 				});
 
 				if (totalCount == 0L) {
-					LOG.debug("redis key {} contains no element", redisKey);
+					LOG.debug("redis key {} does not exist or contains no element", redisKey);
 					continue;
 				}
-				createIndexType(date, logType, HOST);
-				LOG.debug("send log from redis key {} to dest, total log event count is {}", ElasticToRedis.getRedisKey(generateSrcDateString(date), logType), totalCount);
+				createIndexType(date, elasticCrawlJob, logType);
+				LOG.debug("send log from redis key {} to dest, total log event count is {}", redisKey, totalCount);
 
 				long size = 600;
 				long from = 0;
@@ -96,7 +89,7 @@ public class ElasticPersistence {
 					}
 
 					hitList.stream().forEach(hit -> {
-						Event event = generateEvent(hit, index, logType);
+						Event event = generateEvent(hit, elasticCrawlJob.getDestinationHost(), index, logType);
 						accessLogExtracter.tell(event, ActorRef.noSender());
 					});
 				}
@@ -109,28 +102,16 @@ public class ElasticPersistence {
 		}
 	}
 
-	public Event generateEvent(Hit hit, String index, String logType) {
-		Event event = new Event(hit.getSource(), index, logType, hit.getId());
+	public Event generateEvent(Hit hit, String host, String index, String logType) {
+		Event event = new Event(hit.getSource(), host, index, logType, hit.getId());
 		return event;
 	}
 
-	public String generateDestIndex(ZonedDateTime date) {
-		return "log." + generateDestDateString(date);
-	}
-
-	public String generateSrcDateString(ZonedDateTime date) {
-		return redisKeyDateFormat.format(date);
-	}
-
-	public String generateDestDateString(ZonedDateTime date) {
-		return destDateFormat.format(date);
-	}
-
-	public void createIndexType(ZonedDateTime date, String logType, String host) {
+	public void createIndexType(ZonedDateTime date, ElasticCrawlJob elasticCrawlJob, String logType) {
 		boolean indexExist = false;
 		try {
-			ResponseEntity<Void> responseEntity = restTemplate.exchange(host + "/{index}", HttpMethod.GET, null, new ParameterizedTypeReference<Void>() {
-			}, generateDestIndex(date));
+			ResponseEntity<Void> responseEntity = restTemplate.exchange(elasticCrawlJob.getDestinationUrl(date), HttpMethod.GET, null, new ParameterizedTypeReference<Void>() {
+			});
 			indexExist = responseEntity != null && ElasticToRedis.isSuccess(responseEntity);
 		} catch (HttpClientErrorException e) {
 		}
@@ -138,29 +119,29 @@ public class ElasticPersistence {
 		if (indexExist) {
 			LOG.warn("index exists, delete type");
 			try {
-				restTemplate.delete(host + "/{index}/{type}", generateDestIndex(date), logType);
+				restTemplate.delete(elasticCrawlJob.getDestinationUrl(date, logType));
 			} catch (HttpClientErrorException e) {
-				LOG.error("{} log does not exists in {}", logType, generateDestIndex(date));
+				LOG.error("type {} does not exists in index {}", logType, elasticCrawlJob.getDestinationIndex(date));
 			}
 
 		} else {
 			LOG.warn("index does not exist, create index");
 			try {
-				restTemplate.put(host + "/{index}", null, generateDestIndex(date));
+				restTemplate.put(elasticCrawlJob.getDestinationUrl(date), null);
 			} catch (Throwable e) {
 				LOG.error(e.getMessage());
 				throw new RuntimeException(e);
 			}
 		}
 		byte[] rawMappingValue = redisTemplate.execute((RedisConnection connection) -> {
-			return connection.get(ElasticToRedis.getMappingRedisKey(generateSrcDateString(date), logType).getBytes(ElasticToRedis.UTF_8_CHARSET));
+			return connection.get(ElasticToRedis.getMappingRedisKey(date, elasticCrawlJob, logType).getBytes(ElasticToRedis.UTF_8_CHARSET));
 
 		});
 		try {
 			HashMap<String, Object> mapping = OBJECT_MAPPER.readValue(rawMappingValue, HashMap.class);
 			HttpEntity<HashMap> httpEntity = new HttpEntity<>(mapping);
-			restTemplate.exchange(host + "/{index}/{type}/_mapping", HttpMethod.PUT, httpEntity, new ParameterizedTypeReference<Void>() {
-			}, generateDestIndex(date), logType);
+			restTemplate.exchange(elasticCrawlJob.getDestinationUrl(date, logType) + "_mapping", HttpMethod.PUT, httpEntity, new ParameterizedTypeReference<Void>() {
+			});
 		} catch (Throwable e) {
 			LOG.error(e);
 			throw new RuntimeException(e);

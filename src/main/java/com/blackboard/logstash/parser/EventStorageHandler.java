@@ -7,7 +7,6 @@ import akka.actor.ActorRef;
 import akka.actor.PoisonPill;
 import akka.actor.UntypedActor;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.http.HttpMethod;
 import org.springframework.web.client.RestTemplate;
 
 /**
@@ -19,26 +18,24 @@ import org.springframework.web.client.RestTemplate;
 public class EventStorageHandler extends UntypedActor {
 
 	private final RestTemplate restTemplate;
-	private final String host;
-	public EventStorageHandler(RestTemplate restTemplate, String host) {
+
+	public EventStorageHandler(RestTemplate restTemplate) {
 		this.restTemplate = restTemplate;
-		this.host = host;
 	}
 
 	@Override
 	public void onReceive(Object message) throws Exception {
-		if(message instanceof Event){
+		if (message instanceof Event) {
 			Event event = (Event) message;
-			if(StringUtils.isNotBlank(event.id)) {
-				restTemplate.put("{host}/{index}/{type}/{id}", event.fields, host, event.index, event.type,
-						event.id);
-			}else{
-				restTemplate.postForLocation("{host}/{index}/{type}/", event.fields, host, event.index, event.type);
+			if (StringUtils.isNotBlank(event.id)) {
+				restTemplate.put("{host}/{index}/{type}/{id}", event.fields, event.host, event.index, event.type, event.id);
+			} else {
+				restTemplate.postForLocation("{host}/{index}/{type}/", event.fields, event.host, event.index, event.type);
 
 			}
-		}else if(Scanner.FINISH_WORK.equals(message)){
+		} else if (Scanner.FINISH_WORK.equals(message)) {
 			getSelf().tell(PoisonPill.getInstance(), ActorRef.noSender());
-		}else{
+		} else {
 			unhandled(message);
 		}
 	}

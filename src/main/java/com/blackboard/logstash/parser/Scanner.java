@@ -71,7 +71,7 @@ public class Scanner extends UntypedActor {
 		Map<String, Object> fields = new HashMap<>();
 		fields.put("message", eventMessage);
 		fields.put("path", file.getAbsolutePath());
-		Event event = new Event(fields, "log-" + fields.get("date"), fields.get("type").toString() );
+		Event event = new Event(fields, "http://", "log-" + fields.get("date"), fields.get("type").toString() );
 		return event;
 
 	}

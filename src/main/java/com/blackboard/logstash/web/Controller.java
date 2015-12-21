@@ -9,8 +9,10 @@ import java.time.ZonedDateTime;
 import java.util.Date;
 import java.util.TimeZone;
 
+import com.blackboard.logstash.job.ElasticCrawlJob;
 import com.blackboard.logstash.job.ElasticToRedis;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.propertyeditors.CustomDateEditor;
 import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.InitBinder;
@@ -27,6 +29,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class Controller {
 	@Autowired ElasticToRedis elasticToRedis;
+
+	@Autowired
+	@Qualifier("source0")
+	ElasticCrawlJob elasticCrawlJob;
 
 	@InitBinder
 	private void initBinder(WebDataBinder binder) {
@@ -46,8 +52,8 @@ public class Controller {
 			@RequestParam(required = false, defaultValue = "false") String overwriteElastic) {
 		long start = System.currentTimeMillis();
 		try {
-			elasticToRedis.crawl(ZonedDateTime.ofInstant(fromDate.toInstant(), ZoneOffset.UTC), ZonedDateTime.ofInstant(endDate.toInstant(), ZoneOffset.UTC), "AccessLog",
-					Boolean.parseBoolean(overwriteRedis), Boolean.parseBoolean(overwriteElastic));
+			elasticToRedis.crawl(ZonedDateTime.ofInstant(fromDate.toInstant(), ZoneOffset.UTC), ZonedDateTime.ofInstant(endDate.toInstant(), ZoneOffset.UTC), Boolean.parseBoolean(overwriteRedis),
+					Boolean.parseBoolean(overwriteElastic));
 		} catch (Throwable e) {
 			return "error: " + e.getMessage();
 

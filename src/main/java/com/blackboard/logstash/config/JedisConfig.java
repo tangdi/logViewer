@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2015, Blackboard Inc. All Rights Reserved.
  */
-package com.blackboard.logstash.web;
+package com.blackboard.logstash.config;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
