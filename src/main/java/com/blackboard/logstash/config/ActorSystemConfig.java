@@ -16,13 +16,13 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestTemplate;
 
 /**
- * ClassName: ActtorSystemConfig Function: TODO
+ * ClassName: ActorSystemConfig Function: TODO
  *
  * @Author: dtang
  * @Date: 12/18/15, 12:16 PM
  */
 @Configuration
-public class ActtorSystemConfig {
+public class ActorSystemConfig {
 	@Autowired RestTemplate restTemplate;
 	private volatile ActorSystem actorSystem;
 
@@ -43,13 +43,9 @@ public class ActtorSystemConfig {
 				actorSystem = ActorSystem.create("logApp");
 			}
 		}
-		Filter filter = new Filter();
-
-		//filter to get device platform from user agent
-		filter.add("request.headers.agent", "%{GREEDY}%{PLATFORM:platform}%{GREEDY}?", null, null);
 
 		ActorRef storageMaster = actorSystem.actorOf(MasterHandler.createMasterProp(20, EventStorageHandler.class, restTemplate), "storager");
-		ActorRef extractor = actorSystem.actorOf(MasterHandler.createMasterProp(10, EventExtractHandler.class, filter, storageMaster), "extracter");
+		ActorRef extractor = actorSystem.actorOf(MasterHandler.createMasterProp(10, EventExtractHandler.class, storageMaster), "extracter");
 		return extractor;
 	}
 }

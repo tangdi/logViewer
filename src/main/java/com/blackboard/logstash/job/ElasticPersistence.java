@@ -10,6 +10,7 @@ import java.util.*;
 import akka.actor.ActorRef;
 import com.blackboard.logstash.model.Hit;
 import com.blackboard.logstash.parser.Event;
+import com.blackboard.logstash.parser.Filter;
 import com.blackboard.logstash.util.ObjectMapperUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.logging.log4j.LogManager;
@@ -17,6 +18,7 @@ import org.apache.logging.log4j.Logger;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
@@ -37,9 +39,9 @@ public class ElasticPersistence {
 	private final ObjectMapper OBJECT_MAPPER = ObjectMapperUtil.getObjectMapper();
 	private final ActorRef accessLogExtracter;
 	private final RestTemplate restTemplate;
-	private final RedisTemplate<String, Object> redisTemplate;
+	private final StringRedisTemplate redisTemplate;
 
-	public ElasticPersistence(ActorRef accessLogExtracter, RestTemplate restTemplate, RedisTemplate<String, Object> redisTemplate) {
+	public ElasticPersistence(ActorRef accessLogExtracter, RestTemplate restTemplate, StringRedisTemplate redisTemplate) {
 		this.accessLogExtracter = accessLogExtracter;
 		this.restTemplate = restTemplate;
 		this.redisTemplate = redisTemplate;
@@ -56,9 +58,7 @@ public class ElasticPersistence {
 				String index = elasticCrawlJob.getDestinationIndex(date);
 				String redisKey = ElasticToRedis.getRedisKey(date, elasticCrawlJob, logType);
 
-				Long totalCount = redisTemplate.execute((RedisConnection connection) -> {
-					return connection.lLen(redisKey.getBytes(ElasticToRedis.UTF_8_CHARSET));
-				});
+				Long totalCount = redisTemplate.opsForList().size(redisKey);
 
 				if (totalCount == 0L) {
 					LOG.debug("redis key {} does not exist or contains no element", redisKey);
@@ -74,14 +74,12 @@ public class ElasticPersistence {
 				while (from < totalCount) {
 					final long rfrom = from;
 					final long rsize = size;
-					List<byte[]> rawByteList = redisTemplate.execute((RedisConnection connection) -> {
-						return connection.lRange(redisKey.getBytes(ElasticToRedis.UTF_8_CHARSET), rfrom, rfrom + rsize);
-					});
-					from += rawByteList.size();
+					List<String> values= redisTemplate.opsForList().range(redisKey, rfrom, rfrom + rsize);
+					from += values.size();
 					List<Hit> hitList = new ArrayList<>();
-					for (byte[] bytes : rawByteList) {
+					for (String value: values) {
 						try {
-							Hit hit = ObjectMapperUtil.getObjectMapper().readValue(bytes, Hit.class);
+							Hit hit = ObjectMapperUtil.getObjectMapper().readValue(value, Hit.class);
 							hitList.add(hit);
 						} catch (IOException e) {
 							e.printStackTrace();
@@ -89,7 +87,7 @@ public class ElasticPersistence {
 					}
 
 					hitList.stream().forEach(hit -> {
-						Event event = generateEvent(hit, elasticCrawlJob.getDestinationHost(), index, logType);
+						Event event = generateEvent(hit, elasticCrawlJob.getDestinationHost(), index, logType, elasticCrawlJob.getFilter().orElse(null));
 						accessLogExtracter.tell(event, ActorRef.noSender());
 					});
 				}
@@ -102,8 +100,8 @@ public class ElasticPersistence {
 		}
 	}
 
-	public Event generateEvent(Hit hit, String host, String index, String logType) {
-		Event event = new Event(hit.getSource(), host, index, logType, hit.getId());
+	public Event generateEvent(Hit hit, String host, String index, String logType, Filter filter) {
+		Event event = new Event(hit.getSource(), host, index, logType, hit.getId(), filter);
 		return event;
 	}
 
@@ -133,12 +131,9 @@ public class ElasticPersistence {
 				throw new RuntimeException(e);
 			}
 		}
-		byte[] rawMappingValue = redisTemplate.execute((RedisConnection connection) -> {
-			return connection.get(ElasticToRedis.getMappingRedisKey(date, elasticCrawlJob, logType).getBytes(ElasticToRedis.UTF_8_CHARSET));
-
-		});
+		String mappingValue = redisTemplate.opsForValue().get(ElasticToRedis.getMappingRedisKey(date, elasticCrawlJob, logType));
 		try {
-			HashMap<String, Object> mapping = OBJECT_MAPPER.readValue(rawMappingValue, HashMap.class);
+			HashMap<String, Object> mapping = OBJECT_MAPPER.readValue(mappingValue, HashMap.class);
 			HttpEntity<HashMap> httpEntity = new HttpEntity<>(mapping);
 			restTemplate.exchange(elasticCrawlJob.getDestinationUrl(date, logType) + "_mapping", HttpMethod.PUT, httpEntity, new ParameterizedTypeReference<Void>() {
 			});

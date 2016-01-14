@@ -7,6 +7,7 @@ import java.text.SimpleDateFormat;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.Date;
+import java.util.List;
 import java.util.TimeZone;
 
 import com.blackboard.logstash.job.ElasticCrawlJob;
@@ -29,10 +30,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class Controller {
 	@Autowired ElasticToRedis elasticToRedis;
-
-	@Autowired
-	@Qualifier("source0")
-	ElasticCrawlJob elasticCrawlJob;
 
 	@InitBinder
 	private void initBinder(WebDataBinder binder) {

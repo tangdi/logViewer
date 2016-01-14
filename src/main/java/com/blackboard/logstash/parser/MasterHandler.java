@@ -29,6 +29,7 @@ public class MasterHandler extends UntypedActor {
 	}
 
 	private static SupervisorStrategy strategy = new OneForOneStrategy(-1, Duration.Inf(), (Throwable e) -> {
+		//TODO add more strategy
 		LOG.error(e);
 		return SupervisorStrategy.resume();
 	});

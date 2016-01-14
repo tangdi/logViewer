@@ -16,33 +16,33 @@ import redis.clients.jedis.JedisPoolConfig;
  * @Author: dtang
  * @Date: 11/5/15, 5:45 PM
  */
-@Configuration
+//@Configuration
 public class JedisConfig {
-	@Bean
-	@Autowired
-	public RedisTemplate redisTemplate(JedisConnectionFactory jedisConnectionFactory){
-		RedisTemplate redisTemplate = new RedisTemplate();
-		redisTemplate.setConnectionFactory(jedisConnectionFactory);
-		return redisTemplate;
-	}
-
-	@Bean
-	public JedisPoolConfig jedisPoolConfig(){
-		JedisPoolConfig jedisPoolConfig = new JedisPoolConfig();
-		jedisPoolConfig.setMaxTotal(20);
-		jedisPoolConfig.setMaxIdle(10);
-		jedisPoolConfig.setMaxWaitMillis(10000);
-		jedisPoolConfig.setTestOnBorrow(true);
-		return jedisPoolConfig;
-	}
-
-	@Bean
-	@Autowired
-	public JedisConnectionFactory jedisConnectionFactory(JedisPoolConfig jedisPoolConfig){
-		JedisConnectionFactory jedisConnectionFactory = new JedisConnectionFactory();
-		jedisConnectionFactory.setPoolConfig(jedisPoolConfig);
-		jedisConnectionFactory.setHostName("localhost");
-		jedisConnectionFactory.setPort(6379);
-		return jedisConnectionFactory;
-	}
+//	@Bean
+//	@Autowired
+//	public RedisTemplate redisTemplate(JedisConnectionFactory jedisConnectionFactory){
+//		RedisTemplate redisTemplate = new RedisTemplate();
+//		redisTemplate.setConnectionFactory(jedisConnectionFactory);
+//		return redisTemplate;
+//	}
+//
+//	@Bean
+//	public JedisPoolConfig jedisPoolConfig(){
+//		JedisPoolConfig jedisPoolConfig = new JedisPoolConfig();
+//		jedisPoolConfig.setMaxTotal(20);
+//		jedisPoolConfig.setMaxIdle(10);
+//		jedisPoolConfig.setMaxWaitMillis(10000);
+//		jedisPoolConfig.setTestOnBorrow(true);
+//		return jedisPoolConfig;
+//	}
+//
+//	@Bean
+//	@Autowired
+//	public JedisConnectionFactory jedisConnectionFactory(JedisPoolConfig jedisPoolConfig){
+//		JedisConnectionFactory jedisConnectionFactory = new JedisConnectionFactory();
+//		jedisConnectionFactory.setPoolConfig(jedisPoolConfig);
+//		jedisConnectionFactory.setHostName("localhost");
+//		jedisConnectionFactory.setPort(6379);
+//		return jedisConnectionFactory;
+//	}
 }

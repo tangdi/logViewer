@@ -18,6 +18,7 @@ import java.util.Date;
 
 /**
  * ClassName: LogScanTask Function: TODO
+ * this is a class use to read a local log file and send it to elastic.
  *
  * @Author: dtang
  * @Date: 9/29/15, 2:05 PM

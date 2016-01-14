@@ -2,7 +2,9 @@ package com.blackboard.logstash.job;
 
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Optional;
 
+import com.blackboard.logstash.parser.Filter;
 import org.springframework.http.HttpEntity;
 
 /**
@@ -27,4 +29,6 @@ public interface ElasticCrawlJob {
 	String getDestinationIndex(ZonedDateTime date);
 
 	String getDestinationHost();
+
+	Optional<Filter> getFilter();
 }

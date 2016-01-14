@@ -4,6 +4,7 @@
 package com.blackboard.logstash.job;
 
 import java.nio.charset.Charset;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -26,6 +27,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -45,25 +47,24 @@ public class ElasticToRedis {
 
 	@Autowired private RestTemplate restTemplate;
 
-	@Autowired private RedisTemplate<String, Object> redisTemplate;
+	@Autowired private StringRedisTemplate redisTemplate;
 	@Autowired private ActorRef logExtracter;
 	@Autowired private List<ElasticCrawlJob> elasticCrawlJobList;
 
 	private final ObjectMapper OBJECT_MAPPER = ObjectMapperUtil.getObjectMapper();
-
-	public static final Charset UTF_8_CHARSET = Charset.forName("UTF-8");
 
 	private final int MAX_TIMES = 3;
 
 	private final CountDownLatch DAILY_CRAWL = new CountDownLatch(1);
 
 	@PostConstruct
-	private void saveLastMonthData() {
+	private void savehistoryData() {
 		Thread thread = new Thread(() -> {
-			LOG.warn("initialize: crawl last month data if not in redis and elastic");
+			ZonedDateTime start = ZonedDateTime.of(2016, 01, 10, 0, 0, 0, 0, ZoneOffset.UTC);
+			ZonedDateTime end = ZonedDateTime.now(ZoneOffset.UTC).minusDays(2);
+			LOG.warn("initialize: crawl history data if not in redis and elastic");
+			LOG.warn("start date is {}, end date is {}", start.format(DateTimeFormatter.BASIC_ISO_DATE), end.format(DateTimeFormatter.BASIC_ISO_DATE));
 			try {
-				ZonedDateTime end = ZonedDateTime.now(ZoneOffset.UTC).minusDays(1);
-				ZonedDateTime start = end.minusDays(6);
 				crawl(start, end, false, false);
 			} catch (Throwable e) {
 				LOG.error(e);
@@ -75,28 +76,25 @@ public class ElasticToRedis {
 
 	}
 
+	//TODO modify to cronjob
 	@Scheduled(fixedRate = 24 * 3600 * 1000)
 	private void crawl() {
-		ZonedDateTime today = ZonedDateTime.now(ZoneOffset.UTC);
+		ZonedDateTime start = ZonedDateTime.now(ZoneOffset.UTC).minusDays(1);
 		try {
 			DAILY_CRAWL.await();
 		} catch (InterruptedException e) {
 			LOG.error(e);
 			return;
 		}
-		ZonedDateTime start = today.minusDays(1);
-		LOG.warn("crawl one day {} data", start.format(DateTimeFormatter.ofPattern("yyyy-MM-dd")));
-
-		//TODO fill the real elastic host
-		//		String host = "https://mbaas-prod-elk-664782521.us-east-1.elb.amazonaws.com/elasticsearch/logstash-{date}/{LOG_TYPE}/";
-
-		crawl(start, today, false, true);
+		ZonedDateTime today = ZonedDateTime.now(ZoneOffset.UTC);
+		LOG.warn("doing daily crawl, start date is {}, end date is {}", start.format(DateTimeFormatter.BASIC_ISO_DATE), today.format(DateTimeFormatter.BASIC_ISO_DATE));
+		crawl(start, today, false, false);
 	}
 
 	public void crawl(ZonedDateTime startDate, ZonedDateTime endDate, boolean overwriteRedis, boolean overwriteElastic) {
-		List<ZonedDateTime> dates = new ArrayList<>();
 		for (ElasticCrawlJob elasticCrawlJob : elasticCrawlJobList) {
 			for (String type : elasticCrawlJob.getSourceTypes()) {
+				List<ZonedDateTime> dates = new ArrayList<>();
 				for (ZonedDateTime date = startDate; date.isBefore(endDate); date = date.plusDays(1)) {
 					LOG.debug("elasticSource is is {}, log type is {}, index is {}", elasticCrawlJob.getSourceUniqueId(), type, elasticCrawlJob.getSourceIndex(date));
 					if (crawl(date, type, elasticCrawlJob, overwriteRedis)) {
@@ -108,11 +106,8 @@ public class ElasticToRedis {
 				}
 				ElasticPersistence elasticPersistence = new ElasticPersistence(logExtracter, restTemplate, redisTemplate);
 				elasticPersistence.store(elasticCrawlJob, type, dates);
-
 			}
-
 		}
-
 	}
 
 	public boolean crawl(ZonedDateTime targetDate, String logType, ElasticCrawlJob elasticCrawlJob, boolean overwriteRedis) {
@@ -165,21 +160,14 @@ public class ElasticToRedis {
 	}
 
 	public boolean existsInRedis(ZonedDateTime date, String logType, ElasticCrawlJob elasticCrawlJob) {
-		boolean existing = redisTemplate.execute((RedisConnection connection) -> {
-			return connection.exists(getRedisKey(date, elasticCrawlJob, logType).getBytes(UTF_8_CHARSET));
-		}) && redisTemplate.execute((RedisConnection connection) -> {
-			return connection.exists(getMappingRedisKey(date, elasticCrawlJob, logType).getBytes(UTF_8_CHARSET));
-		});
-		return existing;
+		return redisTemplate.hasKey(getRedisKey(date, elasticCrawlJob, logType)) && redisTemplate.hasKey(getMappingRedisKey(date, elasticCrawlJob, logType));
 	}
 
 	public void deleteRedisKey(ZonedDateTime date, ElasticCrawlJob elasticCrawlJob, String logType) {
-		redisTemplate.execute((RedisConnection connection) -> {
-			return connection.del(getRedisKey(date, elasticCrawlJob, logType).getBytes(UTF_8_CHARSET));
-		});
-		redisTemplate.execute((RedisConnection connection) -> {
-			return connection.del(getMappingRedisKey(date, elasticCrawlJob, logType).getBytes(UTF_8_CHARSET));
-		});
+		List<String> keys = new ArrayList<>();
+		keys.add(getRedisKey(date, elasticCrawlJob, logType));
+		keys.add(getMappingRedisKey(date, elasticCrawlJob, logType));
+		redisTemplate.delete(keys);
 	}
 
 	public void saveMappingInRedis(ZonedDateTime date, ElasticCrawlJob elasticCrawlJob, String logType) {
@@ -194,19 +182,16 @@ public class ElasticToRedis {
 				HashMap<String, HashMap<String, Object>> details = mapping.values().stream().findFirst().get();
 				Object typeMapping = details.get("mappings").get(logType);
 				if (typeMapping != null) {
-					redisTemplate.execute((RedisConnection connection) -> {
-						String value = null;
-						try {
-							value = OBJECT_MAPPER.writeValueAsString(typeMapping);
-						} catch (JsonProcessingException e) {
-							LOG.error(e);
-						}
-						if (value == null) {
-							return null;
-						}
-						connection.set(mappingRedisKey.getBytes(UTF_8_CHARSET), value.getBytes(UTF_8_CHARSET));
-						return null;
-					});
+					String value = null;
+					try {
+						value = OBJECT_MAPPER.writeValueAsString(typeMapping);
+					} catch (JsonProcessingException e) {
+						LOG.error(e);
+					}
+					if(value == null){
+						return;
+					}
+					redisTemplate.opsForValue().set(mappingRedisKey, value);
 					return;
 				}
 
@@ -222,7 +207,7 @@ public class ElasticToRedis {
 	public void saveDataInRedis(ZonedDateTime date, ElasticCrawlJob elasticCrawlJob, String logType) {
 		long size = 300;
 		ResponseEntity<ElasticSearchResponse> responseEntity;
-		//TODO current beast does not support Scan and Scroll, which is performance optimal
+		//TODO current beast Elastic does not support Scan and Scroll, which is performance optimal
 
 		String host = elasticCrawlJob.getSourceUrl(date, logType);
 		try {
@@ -253,19 +238,17 @@ public class ElasticToRedis {
 				}
 				System.out.println(accu);
 				responseEntity.getBody().getHits().getHits().parallelStream().forEach(hit -> {
-					redisTemplate.execute((RedisConnection connection) -> {
-						String value = null;
-						try {
-							value = OBJECT_MAPPER.writeValueAsString(hit);
-						} catch (JsonProcessingException e) {
-							e.printStackTrace();
-						}
-						if (value == null) {
-							return null;
-						}
-						connection.rPush(redisKey.getBytes(UTF_8_CHARSET), value.getBytes(UTF_8_CHARSET));
-						return null;
-					});
+					String value = null;
+					try {
+						value = OBJECT_MAPPER.writeValueAsString(hit);
+					} catch (JsonProcessingException e) {
+						LOG.error(e);
+					}
+					if(value == null){
+						return;
+					}
+					redisTemplate.opsForList().rightPush(redisKey, value);
+					return;
 				});
 				accu += hitsSize;
 			}

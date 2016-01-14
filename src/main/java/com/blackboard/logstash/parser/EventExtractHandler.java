@@ -6,37 +6,23 @@ import akka.actor.UntypedActor;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 public class EventExtractHandler extends UntypedActor{
-	public Filter filter;
-	public int count;
 
 	private ActorRef nextHandler;
-	public EventExtractHandler(Filter filter, ActorRef nextHandler) {
-		this.filter = filter;
+	public EventExtractHandler(ActorRef nextHandler) {
 		this.nextHandler = nextHandler;
-//		config().connectionConfig(connectionConfig().closeIdleConnectionsAfterEachResponse());
 	}
 
 	public void handle(Event event) {
-		Map<String, Object> fields = EventExtracter.extract(new HashMap<>(event.fields), filter);
-		nextHandler.tell(new Event(fields, event.host, event.index, event.type, event.id), getSender());
-//				System.out.println("event field is " + event.fields);
-//		baseURI = "http://localhost:9200";
-//
-//		Response response = given().body(event.fields)
-//				.put("/{type}/log/{id}", event.fields.get("type") + "." + event.fields.get("date"), ++count)
-//				.andReturn();
-//		//		System.out.println(response.getBody().asString());
-//
-//		if (count % 10000 == 0) {
-//			System.out.println(count);
-//			try {
-//				Thread.sleep(10000);
-//			} catch (InterruptedException e) {
-//				e.printStackTrace();
-//			}
-//		}
+		if(Objects.nonNull(event.filter)){
+			Map<String, Object> fields = EventExtracter.extract(new HashMap<>(event.fields), event.filter);
+			nextHandler.tell(new Event(fields, event.host, event.index, event.type, event.id, event.filter), getSender());
+		}else{
+			nextHandler.tell(event, getSender());
+		}
+
 	}
 
 	@Override
