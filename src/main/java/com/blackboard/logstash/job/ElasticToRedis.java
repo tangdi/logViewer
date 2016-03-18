@@ -3,8 +3,6 @@
  */
 package com.blackboard.logstash.job;
 
-import java.nio.charset.Charset;
-import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -13,10 +11,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.CountDownLatch;
-import javax.annotation.PostConstruct;
 
 import akka.actor.ActorRef;
+import com.blackboard.logstash.config.SourceElasticConfig;
 import com.blackboard.logstash.model.ElasticSearchResponse;
 import com.blackboard.logstash.util.ObjectMapperUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -25,8 +22,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.data.redis.connection.RedisConnection;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
@@ -49,43 +44,16 @@ public class ElasticToRedis {
 
 	@Autowired private StringRedisTemplate redisTemplate;
 	@Autowired private ActorRef logExtracter;
-	@Autowired private List<ElasticCrawlJob> elasticCrawlJobList;
+	private List<ElasticCrawlJob> elasticCrawlJobList = SourceElasticConfig.jobs;
 
 	private final ObjectMapper OBJECT_MAPPER = ObjectMapperUtil.getObjectMapper();
 
 	private final int MAX_TIMES = 3;
 
-	private final CountDownLatch DAILY_CRAWL = new CountDownLatch(1);
-
-	@PostConstruct
-	private void savehistoryData() {
-		Thread thread = new Thread(() -> {
-			ZonedDateTime start = ZonedDateTime.of(2016, 01, 10, 0, 0, 0, 0, ZoneOffset.UTC);
-			ZonedDateTime end = ZonedDateTime.now(ZoneOffset.UTC).minusDays(2);
-			LOG.warn("initialize: crawl history data if not in redis and elastic");
-			LOG.warn("start date is {}, end date is {}", start.format(DateTimeFormatter.BASIC_ISO_DATE), end.format(DateTimeFormatter.BASIC_ISO_DATE));
-			try {
-				crawl(start, end, false, false);
-			} catch (Throwable e) {
-				LOG.error(e);
-			}
-			LOG.warn("initialize finished");
-			DAILY_CRAWL.countDown();
-		});
-		thread.start();
-
-	}
-
 	//TODO modify to cronjob
 	@Scheduled(fixedRate = 24 * 3600 * 1000)
 	private void crawl() {
 		ZonedDateTime start = ZonedDateTime.now(ZoneOffset.UTC).minusDays(1);
-		try {
-			DAILY_CRAWL.await();
-		} catch (InterruptedException e) {
-			LOG.error(e);
-			return;
-		}
 		ZonedDateTime today = ZonedDateTime.now(ZoneOffset.UTC);
 		LOG.warn("doing daily crawl, start date is {}, end date is {}", start.format(DateTimeFormatter.BASIC_ISO_DATE), today.format(DateTimeFormatter.BASIC_ISO_DATE));
 		crawl(start, today, false, false);
@@ -131,7 +99,7 @@ public class ElasticToRedis {
 				saveDataInRedis(targetDate, elasticCrawlJob, logType);
 				sucessful = true;
 			} catch (Throwable e) {
-				LOG.error("there is error when crawling from Prod, error is: {}, retry if possible", e.getLocalizedMessage());
+				LOG.error("there is error when crawling from {}, error is: {}, retry if possible",elasticCrawlJob.getSourceUniqueId(), e.getLocalizedMessage());
 				deleteRedisKey(targetDate, elasticCrawlJob, logType);
 			}
 		}

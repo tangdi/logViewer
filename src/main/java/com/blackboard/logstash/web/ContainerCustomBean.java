@@ -8,13 +8,13 @@ import org.springframework.boot.context.embedded.EmbeddedServletContainerCustomi
 import org.springframework.stereotype.Component;
 
 /**
- * ClassName: ContainerCutomizationBean Function: TODO
+ * ClassName: ContainerCustomBean Function: TODO
  *
  * @Author: dtang
  * @Date: 9/29/15, 11:27 AM
  */
 @Component
-public class ContainerCutomizationBean implements EmbeddedServletContainerCustomizer {
+public class ContainerCustomBean implements EmbeddedServletContainerCustomizer {
 
 	@Override
 	public void customize(ConfigurableEmbeddedServletContainer container) {

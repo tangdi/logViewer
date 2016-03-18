@@ -18,6 +18,7 @@ hs_err_pid*
 .gradle
 .settings
 .springbeans
+src/main/resources/ElasticJobConfig.json
 
 target/
 gradle/

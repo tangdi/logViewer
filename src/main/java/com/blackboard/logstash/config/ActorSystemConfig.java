@@ -5,10 +5,8 @@ package com.blackboard.logstash.config;
 
 import akka.actor.ActorRef;
 import akka.actor.ActorSystem;
-import com.blackboard.logstash.job.ElasticPersistence;
 import com.blackboard.logstash.parser.EventExtractHandler;
 import com.blackboard.logstash.parser.EventStorageHandler;
-import com.blackboard.logstash.parser.Filter;
 import com.blackboard.logstash.parser.MasterHandler;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -37,7 +35,7 @@ public class ActorSystemConfig {
 	}
 
 	@Bean
-	ActorRef accessLogExtracter() {
+	ActorRef logExtracter() {
 		if (actorSystem == null) {
 			synchronized (this) {
 				actorSystem = ActorSystem.create("logApp");

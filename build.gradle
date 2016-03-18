@@ -12,10 +12,12 @@ targetCompatibility = 1.8
 
 
 repositories {
-        
+
+    mavenCentral()
      maven { url "http://repo.typesafe.com/typesafe/releases/" }
      maven { url "http://repo.maven.apache.org/maven2" }
 }
+
 dependencies {
     compile group: 'junit', name: 'junit', version:'4.11'
     compile group: 'com.jayway.restassured', name: 'rest-assured', version:'2.4.0'
@@ -31,10 +33,19 @@ dependencies {
     compile group: 'org.springframework', name: 'spring-aspects', version:'4.2.0.RELEASE'
     compile group: 'com.typesafe.akka', name: 'akka-actor_2.11', version:'2.3.14'
     compile group: 'org.scala-lang', name: 'scala-library', version:'2.11.5'
-    compile group: 'org.springframework.boot', name: 'spring-boot-starter-web', version:'1.2.6.RELEASE'
-    compile group: 'org.springframework.boot', name: 'spring-boot-starter-test', version:'1.2.6.RELEASE'
-    compile group: 'org.springframework.boot', name: 'spring-boot-starter', version:'1.2.6.RELEASE'
-    compile group: 'org.springframework.boot', name: 'spring-boot-redis', version:'1.2.6.RELEASE'
+
+    compile("org.springframework.boot:spring-boot-starter-web:1.2.6.RELEASE") {
+        exclude module: "spring-boot-starter-logging"
+        exclude module: "logback-classic"
+    }
+    compile("org.springframework.boot:spring-boot-starter-test:1.2.6.RELEASE") {
+        exclude module: "spring-boot-starter-logging"
+        exclude module: "logback-classic"
+    }
+    compile("org.springframework.boot:spring-boot-starter-redis:1.2.6.RELEASE") {
+        exclude module: "spring-boot-starter-logging"
+        exclude module: "logback-classic"
+    }
 
     compile 'org.apache.logging.log4j:log4j-api:2.0'
     compile 'org.apache.logging.log4j:log4j-core:2.0'

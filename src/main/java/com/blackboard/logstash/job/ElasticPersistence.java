@@ -69,8 +69,6 @@ public class ElasticPersistence {
 
 				long size = 600;
 				long from = 0;
-				Set<String> set = new HashSet<>();
-
 				while (from < totalCount) {
 					final long rfrom = from;
 					final long rsize = size;
